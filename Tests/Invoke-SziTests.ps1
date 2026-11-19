@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     Запуск всех тестов ПО «СЗИ-Аудит» с формированием отчёта NUnit XML.

@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
 <#
     Модульные и интеграционные тесты главного модуля SziAudit.ps1.

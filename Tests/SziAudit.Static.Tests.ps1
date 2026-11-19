@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 #requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0' }
 <#
     Статические проверки исходных текстов и конфигурации ПО «СЗИ-Аудит»:

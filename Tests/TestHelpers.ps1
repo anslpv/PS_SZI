@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # Общие функции тестов ПО «СЗИ-Аудит»
 
 $global:SziRoot     = Split-Path -Parent $PSScriptRoot
