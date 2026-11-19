@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Эталонный файл конфигурации ПО «СЗИ-Аудит».
+  Заполняется администратором безопасности на основании предписания на эксплуатацию АСЗИ,
+  спецификации СЗИ и эксплуатационной документации. Значения номеров сертификатов, сроков
+  их действия, серийных номеров МНИ и отпечатков сертификатов УЦ приведены как пример
+  и подлежат замене фактическими.
+-->
+<SziEtalon version="1.0" organization="Подразделение пограничного контроля" updated="2026-11-18">
+
+  <Settings>
+    <!-- Каталоги баз антивирусного средства (берётся дата самого нового файла) -->
+    <AvBasesPath>%ProgramData%\Kaspersky Lab\KES\Bases</AvBasesPath>
+    <AvBasesPath>%ProgramData%\Kaspersky Lab\KES.11.6.0\Bases</AvBasesPath>
+    <AvBasesPath>%ProgramData%\Kaspersky Lab\KAVFSEE\10.0\Bases</AvBasesPath>
+    <!-- Подразделение Active Directory, из которого по кнопке «Из домена…» загружается перечень АРМ.
+         Пусто – весь домен. Пример: OU=Компьютеры в кабинах ПК,DC=ptk,DC=local -->
+    <DomainSearchBase></DomainSearchBase>
+    <!-- Журналы событий АВС, в которых ищутся обнаружения вредоносного ПО:
+         eventIds – коды событий (необязательно), keywords – регулярное выражение по тексту события -->
+    <AvLog name="Kaspersky Event Log" eventIds="" keywords="обнаружен|вредонос|заражен|detected|infected|malicious"/>
+    <AvLog name="Microsoft-Windows-Windows Defender/Operational" eventIds="1116,1117" keywords=""/>
+  </Settings>
+
+  <!-- Справочник средств защиты информации -->
+  <SziList>
+    <Szi id="SPR" name="СЗИ от НСД «Secure Pack Rus»" productPattern="*Secure Pack Rus*"
+         minVersion="3.0" servicePattern="" sziClass="АК3"
+         certNumber="СФ/000-0000" certExpires="2028-12-31"/>
+    <Szi id="CSP" name="СКЗИ «КриптоПро CSP»" productPattern="*КриптоПро CSP*|*CryptoPro CSP*"
+         minVersion="5.0" servicePattern="" sziClass="КС3"
+         certNumber="СФ/000-0001" certExpires="2028-12-31"/>
+    <Szi id="VIPNET" name="ПК «ViPNet Client 4»" productPattern="*ViPNet Client*"
+         minVersion="4.5" servicePattern="*ViPNet*" sziClass="КС3"
+         certNumber="СФ/000-0002" certExpires="2028-12-31"/>
+    <Szi id="KES" name="АВС «Kaspersky Endpoint Security для Windows»" productPattern="Kaspersky Endpoint Security*"
+         minVersion="11.6" servicePattern="AVP*" sziClass="Б2, В2, Г2"
+         certNumber="СФ/000-0003" certExpires="2028-12-31"/>
+    <Szi id="KSWS" name="АВС «Kaspersky Security для Windows Server»" productPattern="Kaspersky Security*Windows Server*"
+         minVersion="10.2" servicePattern="kavfs*" sziClass="Б2"
+         certNumber="СФ/000-0004" certExpires="2028-12-31"/>
+    <Szi id="KLNAGENT" name="Агент администрирования Kaspersky Security Center"
+         productPattern="*Агент администрирования Kaspersky*|*Kaspersky Security Center*Network Agent*"
+         minVersion="13.0" servicePattern="klnagent" sziClass="—"
+         certNumber="" certExpires=""/>
+  </SziList>
+
+  <!-- Разрешённое ПО (предписание на эксплуатацию), общее для всех профилей -->
+  <AllowedSoftware>
+    <Pattern>Microsoft Visual C++*</Pattern>
+    <Pattern>Microsoft .NET*</Pattern>
+    <Pattern>*Рутокен*|*Rutoken*</Pattern>
+    <Pattern>*Update for*</Pattern>
+    <Pattern>*(KB*)*</Pattern>
+    <Pattern>*МСПВ*</Pattern>
+  </AllowedSoftware>
+
+  <!-- Профили АРМ (типы рабочих мест) -->
+  <Profiles>
+    <Profile id="ARM_OPK" name="АРМ оператора паспортного контроля">
+      <RequireSzi>SPR,CSP,VIPNET,KES,KLNAGENT</RequireSzi>
+      <AvBasesMaxAgeDays>7</AvBasesMaxAgeDays>
+      <PasswordMinLength>8</PasswordMinLength>
+      <PasswordMaxAgeDays>180</PasswordMaxAgeDays>
+      <LockoutThresholdMax>10</LockoutThresholdMax>
+      <SecurityLogMinMB>64</SecurityLogMinMB>
+      <EventLookbackDays>30</EventLookbackDays>
+      <FailedLogonWarn>20</FailedLogonWarn>
+      <InactivityMaxSec>900</InactivityMaxSec>
+      <CertWarnDays>90</CertWarnDays>
+      <RequireFirewall>true</RequireFirewall>
+      <CrlWarnHours>24</CrlWarnHours>
+      <InactiveUserDays>45</InactiveUserDays>
+      <!-- Локальные учётные записи, допущенные к работе (пусто – сверка не выполняется) -->
+      <AllowedUsers>
+        <Account>Администратор*</Account>
+        <Account>Administrator</Account>
+      </AllowedUsers>
+      <!-- Учётные записи, для которых допускается бессрочный пароль -->
+      <PasswordNeverExpiresAllowed/>
+      <AllowedAdmins>
+        <Account>*\Администратор*</Account>
+        <Account>*\Administrator</Account>
+        <Account>*\Администраторы домена</Account>
+        <Account>*\Domain Admins</Account>
+        <Account>*\Администраторы безопасности</Account>
+      </AllowedAdmins>
+      <AuditPolicy>
+        <Item name="Вход в систему" guid="{0CCE9215-69AE-11D9-BED3-505054503030}" value="3"/>
+        <Item name="Выход из системы" guid="{0CCE9216-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Блокировка учётной записи" guid="{0CCE9217-69AE-11D9-BED3-505054503030}" value="2"/>
+        <Item name="Управление учётными записями пользователей" guid="{0CCE9235-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Управление группами безопасности" guid="{0CCE9237-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики аудита" guid="{0CCE922F-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Использование прав, затрагивающих конфиденциальные данные" guid="{0CCE9228-69AE-11D9-BED3-505054503030}" value="3"/>
+      </AuditPolicy>
+      <AllowedSoftware/>
+    </Profile>
+
+    <Profile id="ARM_SPN" name="АРМ старшего смены пограничных нарядов">
+      <RequireSzi>SPR,CSP,VIPNET,KES,KLNAGENT</RequireSzi>
+      <AvBasesMaxAgeDays>7</AvBasesMaxAgeDays>
+      <PasswordMinLength>8</PasswordMinLength>
+      <PasswordMaxAgeDays>180</PasswordMaxAgeDays>
+      <LockoutThresholdMax>10</LockoutThresholdMax>
+      <SecurityLogMinMB>64</SecurityLogMinMB>
+      <EventLookbackDays>30</EventLookbackDays>
+      <FailedLogonWarn>20</FailedLogonWarn>
+      <InactivityMaxSec>900</InactivityMaxSec>
+      <CertWarnDays>90</CertWarnDays>
+      <RequireFirewall>true</RequireFirewall>
+      <CrlWarnHours>24</CrlWarnHours>
+      <InactiveUserDays>45</InactiveUserDays>
+      <!-- Локальные учётные записи, допущенные к работе (пусто – сверка не выполняется) -->
+      <AllowedUsers/>
+      <!-- Учётные записи, для которых допускается бессрочный пароль -->
+      <PasswordNeverExpiresAllowed/>
+      <AllowedAdmins>
+        <Account>*\Администратор*</Account>
+        <Account>*\Administrator</Account>
+        <Account>*\Администраторы домена</Account>
+        <Account>*\Domain Admins</Account>
+        <Account>*\Администраторы безопасности</Account>
+      </AllowedAdmins>
+      <AuditPolicy>
+        <Item name="Вход в систему" guid="{0CCE9215-69AE-11D9-BED3-505054503030}" value="3"/>
+        <Item name="Выход из системы" guid="{0CCE9216-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Управление учётными записями пользователей" guid="{0CCE9235-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики аудита" guid="{0CCE922F-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Использование прав, затрагивающих конфиденциальные данные" guid="{0CCE9228-69AE-11D9-BED3-505054503030}" value="3"/>
+      </AuditPolicy>
+      <AllowedSoftware>
+        <Pattern>Microsoft Office*</Pattern>
+        <Pattern>*LibreOffice*</Pattern>
+      </AllowedSoftware>
+    </Profile>
+
+    <Profile id="ARM_ADM" name="АРМ администратора безопасности">
+      <RequireSzi>SPR,CSP,VIPNET,KES,KLNAGENT</RequireSzi>
+      <AvBasesMaxAgeDays>7</AvBasesMaxAgeDays>
+      <PasswordMinLength>8</PasswordMinLength>
+      <PasswordMaxAgeDays>180</PasswordMaxAgeDays>
+      <LockoutThresholdMax>10</LockoutThresholdMax>
+      <SecurityLogMinMB>128</SecurityLogMinMB>
+      <EventLookbackDays>30</EventLookbackDays>
+      <FailedLogonWarn>20</FailedLogonWarn>
+      <InactivityMaxSec>600</InactivityMaxSec>
+      <CertWarnDays>90</CertWarnDays>
+      <RequireFirewall>true</RequireFirewall>
+      <CrlWarnHours>24</CrlWarnHours>
+      <InactiveUserDays>45</InactiveUserDays>
+      <!-- Локальные учётные записи, допущенные к работе (пусто – сверка не выполняется) -->
+      <AllowedUsers/>
+      <!-- Учётные записи, для которых допускается бессрочный пароль -->
+      <PasswordNeverExpiresAllowed/>
+      <AllowedAdmins>
+        <Account>*\Администратор*</Account>
+        <Account>*\Administrator</Account>
+        <Account>*\Администраторы домена</Account>
+        <Account>*\Domain Admins</Account>
+        <Account>*\Администраторы безопасности</Account>
+      </AllowedAdmins>
+      <AuditPolicy>
+        <Item name="Вход в систему" guid="{0CCE9215-69AE-11D9-BED3-505054503030}" value="3"/>
+        <Item name="Выход из системы" guid="{0CCE9216-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Управление учётными записями пользователей" guid="{0CCE9235-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Управление группами безопасности" guid="{0CCE9237-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики аудита" guid="{0CCE922F-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики проверки подлинности" guid="{0CCE9230-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Использование прав, затрагивающих конфиденциальные данные" guid="{0CCE9228-69AE-11D9-BED3-505054503030}" value="3"/>
+      </AuditPolicy>
+      <AllowedSoftware>
+        <Pattern>*Kaspersky Security Center*</Pattern>
+        <Pattern>*ViPNet Administrator*</Pattern>
+        <Pattern>*ViPNet Policy Manager*</Pattern>
+        <Pattern>Microsoft Office*</Pattern>
+      </AllowedSoftware>
+    </Profile>
+
+    <Profile id="ARM_SPD" name="АРМ специальной проверки документов">
+      <RequireSzi>KES,KLNAGENT</RequireSzi>
+      <AvBasesMaxAgeDays>14</AvBasesMaxAgeDays>
+      <PasswordMinLength>8</PasswordMinLength>
+      <PasswordMaxAgeDays>180</PasswordMaxAgeDays>
+      <LockoutThresholdMax>10</LockoutThresholdMax>
+      <SecurityLogMinMB>64</SecurityLogMinMB>
+      <EventLookbackDays>30</EventLookbackDays>
+      <FailedLogonWarn>20</FailedLogonWarn>
+      <InactivityMaxSec>900</InactivityMaxSec>
+      <CertWarnDays>90</CertWarnDays>
+      <RequireFirewall>true</RequireFirewall>
+      <CrlWarnHours>24</CrlWarnHours>
+      <InactiveUserDays>45</InactiveUserDays>
+      <!-- Локальные учётные записи, допущенные к работе (пусто – сверка не выполняется) -->
+      <AllowedUsers/>
+      <!-- Учётные записи, для которых допускается бессрочный пароль -->
+      <PasswordNeverExpiresAllowed/>
+      <AllowedAdmins>
+        <Account>*\Администратор*</Account>
+        <Account>*\Administrator</Account>
+      </AllowedAdmins>
+      <AuditPolicy>
+        <Item name="Вход в систему" guid="{0CCE9215-69AE-11D9-BED3-505054503030}" value="3"/>
+        <Item name="Выход из системы" guid="{0CCE9216-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики аудита" guid="{0CCE922F-69AE-11D9-BED3-505054503030}" value="1"/>
+      </AuditPolicy>
+      <AllowedSoftware/>
+    </Profile>
+
+    <Profile id="SRV_OHD" name="Сервер обработки и хранения данных">
+      <RequireSzi>SPR,CSP,KSWS,KLNAGENT</RequireSzi>
+      <AvBasesMaxAgeDays>7</AvBasesMaxAgeDays>
+      <PasswordMinLength>8</PasswordMinLength>
+      <PasswordMaxAgeDays>180</PasswordMaxAgeDays>
+      <LockoutThresholdMax>10</LockoutThresholdMax>
+      <SecurityLogMinMB>256</SecurityLogMinMB>
+      <EventLookbackDays>30</EventLookbackDays>
+      <FailedLogonWarn>50</FailedLogonWarn>
+      <InactivityMaxSec>600</InactivityMaxSec>
+      <CertWarnDays>90</CertWarnDays>
+      <RequireFirewall>true</RequireFirewall>
+      <CrlWarnHours>24</CrlWarnHours>
+      <InactiveUserDays>45</InactiveUserDays>
+      <!-- Локальные учётные записи, допущенные к работе (пусто – сверка не выполняется) -->
+      <AllowedUsers/>
+      <!-- Учётные записи, для которых допускается бессрочный пароль -->
+      <PasswordNeverExpiresAllowed/>
+      <AllowedAdmins>
+        <Account>*\Администратор*</Account>
+        <Account>*\Administrator</Account>
+        <Account>*\Администраторы домена</Account>
+        <Account>*\Domain Admins</Account>
+      </AllowedAdmins>
+      <AuditPolicy>
+        <Item name="Вход в систему" guid="{0CCE9215-69AE-11D9-BED3-505054503030}" value="3"/>
+        <Item name="Выход из системы" guid="{0CCE9216-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Управление учётными записями пользователей" guid="{0CCE9235-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Изменение политики аудита" guid="{0CCE922F-69AE-11D9-BED3-505054503030}" value="1"/>
+        <Item name="Использование прав, затрагивающих конфиденциальные данные" guid="{0CCE9228-69AE-11D9-BED3-505054503030}" value="3"/>
+      </AuditPolicy>
+      <AllowedSoftware>
+        <Pattern>Microsoft SQL Server*</Pattern>
+      </AllowedSoftware>
+    </Profile>
+  </Profiles>
+
+  <!-- Службы, которые должны быть отключены (неиспользуемые функциональные возможности) -->
+  <ForbiddenServices>
+    <Service name="RemoteRegistry" title="Удалённый реестр"/>
+    <Service name="TlntSvr" title="Telnet"/>
+    <Service name="RemoteAccess" title="Маршрутизация и удалённый доступ"/>
+    <Service name="SharedAccess" title="Общий доступ к подключению к Интернету"/>
+    <Service name="bthserv" title="Служба поддержки Bluetooth"/>
+    <Service name="lfsvc" title="Служба географического положения"/>
+    <Service name="WMPNetworkSvc" title="Служба общих сетевых ресурсов проигрывателя Windows Media"/>
+    <Service name="Fax" title="Факс"/>
+  </ForbiddenServices>
+
+  <!-- Списки отозванных сертификатов: файлы .crl (допускаются маски) и/или СОС,
+       установленные в системные хранилища Root и CA -->
+  <Crls includeSystemStore="true">
+    <Path>C:\CRL\*.crl</Path>
+  </Crls>
+
+  <!-- Учтённые съёмные машинные носители информации (журнал учёта МНИ) -->
+  <Media>
+    <Device serial="0401396BBFE2A1B5" owner="Администратор безопасности" note="МНИ уч. № 1 (пример)"/>
+    <Device serial="AA00000000012345" owner="Старший смены" note="МНИ уч. № 2 (пример)"/>
+  </Media>
+
+  <!-- Сертификаты удостоверяющих центров, наличие которых контролируется.
+       Пример: <Cert name="Корневой сертификат ГУЦ" store="Root" thumbprint="ОТПЕЧАТОК"/> -->
+  <Certificates/>
+</SziEtalon>
