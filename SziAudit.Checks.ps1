@@ -512,8 +512,9 @@ Invoke-Check 'USB-READ' 'Съёмные носители' 'История под
 # 8. Сверка установленного ПО с предписанием на эксплуатацию
 # ============================================================================
 Invoke-Check 'SW-EXTRA' 'Программное обеспечение' 'ПО, не указанное в предписании' {
-    $allow = @($E.SziEtalon.AllowedSoftware.Pattern) + @($P.AllowedSoftware.Pattern) +
-             @($E.SziEtalon.SziList.Szi | ForEach-Object { [string]$_.productPattern -split '\|' })
+    $allow = @(@($E.SziEtalon.AllowedSoftware.Pattern) + @($P.AllowedSoftware.Pattern) +
+               @($E.SziEtalon.SziList.Szi | ForEach-Object { $_.productPattern }) |
+               ForEach-Object { [string]$_ -split '\|' } | Where-Object { $_ })
     $extra = @($Soft | Where-Object { -not (Test-LikeAny $_.Name $allow) })
     if ($extra.Count -eq 0) {
         Add-Result $Id $Category $Name 'Только ПО из предписания' "Установлено программ: $($Soft.Count)" $ST_OK $Sev.H
