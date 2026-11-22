@@ -34,7 +34,8 @@ function Add-Result {
     param(
         [string]$Id, [string]$Category, [string]$Name,
         [string]$Expected, [string]$Actual, [string]$Status,
-        [string]$Severity = 'Средняя', [string]$Recommendation = ''
+        [string]$Severity = 'Средняя', [string]$Recommendation = '',
+        [string]$Details = ''
     )
     $Results.Add([pscustomobject]@{
         Computer       = $env:COMPUTERNAME
@@ -46,6 +47,7 @@ function Add-Result {
         Status         = $Status
         Severity       = $Severity
         Recommendation = $Recommendation
+        Details        = $Details   # полный перечень (например, лишнего ПО: «имя<TAB>версия» в строке)
         Time           = Get-Date
     })
 }
@@ -92,8 +94,11 @@ function Test-VersionAtLeast([string]$Actual, [string]$Min) {
 
 function Get-SecurityPolicy {
     $tmp = Join-Path $env:TEMP ('szi_sec_{0}.inf' -f [guid]::NewGuid())
-    $null = & secedit.exe /export /cfg $tmp /areas SECURITYPOLICY 2>&1
-    if (-not (Test-Path $tmp)) { throw 'Не удалось выгрузить локальную политику безопасности (secedit)' }
+    # stderr утилиты не должен прерывать сценарий (ErrorActionPreference = Stop) – анализируется результат
+    $out = & { $ErrorActionPreference = 'Continue'; & secedit.exe /export /cfg $tmp /areas SECURITYPOLICY 2>&1 }
+    if (-not (Test-Path $tmp)) {
+        throw ('Не удалось выгрузить локальную политику безопасности (secedit, код {0}). Требуются права администратора' -f $LASTEXITCODE)
+    }
     $h = @{}
     Get-Content -Path $tmp | ForEach-Object {
         if ($_ -match '^\s*([^=\[\];]+?)\s*=\s*(.*)$') { $h[$matches[1].Trim()] = $matches[2].Trim() }
@@ -104,13 +109,21 @@ function Get-SecurityPolicy {
 
 function Get-AuditPolicy {
     $tmp = Join-Path $env:TEMP ('szi_aud_{0}.csv' -f [guid]::NewGuid())
-    $null = & auditpol.exe /backup /file:$tmp 2>&1
-    if (-not (Test-Path $tmp)) { throw 'Не удалось выгрузить политику аудита (auditpol)' }
+    $out = & { $ErrorActionPreference = 'Continue'; & auditpol.exe /backup /file:$tmp 2>&1 }
+    if (-not (Test-Path $tmp)) {
+        $why = (@($out) | ForEach-Object { [string]$_ } | Where-Object { $_.Trim() }) -join ' '
+        throw ('Не удалось выгрузить политику аудита (auditpol, код {0}): {1}. Требуются права администратора' -f $LASTEXITCODE, $why)
+    }
     $rows = Import-Csv -Path $tmp -Header 'Machine', 'Target', 'Subcategory', 'Guid', 'Incl', 'Excl', 'Value' |
         Select-Object -Skip 1
     Remove-Item -Path $tmp -Force
     $h = @{}
     foreach ($r in $rows) { if ($r.Guid) { $h[$r.Guid.ToUpper()] = $r } }
+    # Без прав администратора auditpol создаёт файл только с заголовком: пустой результат –
+    # это ошибка чтения, а не «Нет аудита» (иначе все проверки аудита ложно не соответствуют)
+    if ($h.Count -eq 0) {
+        throw ('Политика аудита не прочитана (auditpol, код {0}). Требуются права администратора' -f $LASTEXITCODE)
+    }
     return $h
 }
 
@@ -193,6 +206,7 @@ function Get-CrlInfo([byte[]]$Bytes) {
     }
     $cn = $issuer
     if ($issuer -match 'CN=("[^"]+"|[^,]+)') { $cn = $matches[1].Trim('"') }
+    elseif ($issuer -match '^\s*\w+=("[^"]+"|[^,]+)') { $cn = $matches[1].Trim('"') }   # нет CN – первый RDN (OU/O)
     return [pscustomobject]@{ Issuer = $issuer; IssuerCN = $cn; ThisUpdate = $thisUpd; NextUpdate = $next }
 }
 
@@ -238,6 +252,7 @@ $Today = Get-Date
 # 1. Состав, версии, работоспособность и сертификаты СЗИ
 # ============================================================================
 $Soft = @(Get-InstalledSoftware)
+$InstalledSzi = @{}
 $RequiredIds = @(([string]$P.RequireSzi) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $WarnDays = [int](Get-ProfileValue 'CertWarnDays' 90)
 
@@ -248,6 +263,7 @@ foreach ($sid in $RequiredIds) {
     Invoke-Check "SZI-$sid" 'Состав СЗИ' "Установлено: $($s.GetAttribute('name'))" {
         $found = $Soft | Where-Object { Test-LikeAny $_.Name ([string]$s.productPattern -split '\|') } | Select-Object -First 1
         $exp = "Установлено, версия не ниже $($s.minVersion)"
+        if ($found) { $InstalledSzi[$sid] = $true }
         if (-not $found) {
             Add-Result $Id $Category $Name $exp 'Не установлено' $ST_FAIL $Sev.H `
                 'Установить СЗИ в соответствии с предписанием на эксплуатацию АСЗИ'
@@ -281,7 +297,9 @@ foreach ($sid in $RequiredIds) {
         }
     }
 
-    if ($s.certExpires) {
+    # Срок сертификата проверяется только для установленного СЗИ: для отсутствующего
+    # средства результат «Соответствует» вводил бы в заблуждение (несоответствие уже зафиксировано)
+    if ($s.certExpires -and $InstalledSzi[$sid]) {
         Invoke-Check "CRT-$sid" 'Сертификаты СЗИ' "Срок сертификата: $($s.GetAttribute('name'))" {
             $d = [datetime]::ParseExact([string]$s.certExpires, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
             $exp = 'Сертификат соответствия действует'
@@ -461,7 +479,10 @@ Invoke-Check 'NET-DHCP' 'Сетевые настройки' 'Статическ�
 Invoke-Check 'NET-WLAN' 'Сетевые настройки' 'Беспроводные интерфейсы (Wi-Fi, Bluetooth)' {
     $wifi = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue |
         Where-Object { $_.PhysicalMediaType -match '802\.11' -or $_.InterfaceDescription -match 'Wi-?Fi|Wireless|WLAN' })
-    $bt = @(Get-PnpDevice -Class 'Bluetooth' -PresentOnly -ErrorAction SilentlyContinue)
+    # Только физические Bluetooth-адаптеры: сопряжённые устройства, их службы и программные
+    # перечислители (идентификаторы BTH*\...) адаптерами не являются и в отчёт не включаются
+    $bt = @(Get-PnpDevice -Class 'Bluetooth' -PresentOnly -ErrorAction SilentlyContinue |
+        Where-Object { $_.InstanceId -notmatch '^BTH' })
     $list = @($wifi | ForEach-Object { $_.InterfaceDescription }) + @($bt | ForEach-Object { $_.FriendlyName })
     $st = if ($list.Count -eq 0) { $ST_OK } else { $ST_FAIL }
     $act = if ($list.Count -eq 0) { 'Не обнаружены' } else { $list -join '; ' }
@@ -512,9 +533,10 @@ Invoke-Check 'USB-READ' 'Съёмные носители' 'История под
 # 8. Сверка установленного ПО с предписанием на эксплуатацию
 # ============================================================================
 Invoke-Check 'SW-EXTRA' 'Программное обеспечение' 'ПО, не указанное в предписании' {
+    # Д-1: шаблон может содержать несколько вариантов через «|» (например, «*Рутокен*|*Rutoken*»)
     $allow = @(@($E.SziEtalon.AllowedSoftware.Pattern) + @($P.AllowedSoftware.Pattern) +
-               @($E.SziEtalon.SziList.Szi | ForEach-Object { $_.productPattern }) |
-               ForEach-Object { [string]$_ -split '\|' } | Where-Object { $_ })
+               @($E.SziEtalon.SziList.Szi | ForEach-Object { [string]$_.productPattern }) |
+        ForEach-Object { [string]$_ -split '\|' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $extra = @($Soft | Where-Object { -not (Test-LikeAny $_.Name $allow) })
     if ($extra.Count -eq 0) {
         Add-Result $Id $Category $Name 'Только ПО из предписания' "Установлено программ: $($Soft.Count)" $ST_OK $Sev.H
@@ -522,8 +544,9 @@ Invoke-Check 'SW-EXTRA' 'Программное обеспечение' 'ПО, �
     else {
         $names = ($extra | Select-Object -First 15 | ForEach-Object { $_.Name }) -join '; '
         if ($extra.Count -gt 15) { $names += " и ещё $($extra.Count - 15)" }
+        $full = ($extra | ForEach-Object { "$($_.Name)`t$($_.Version)" }) -join "`n"
         Add-Result $Id $Category $Name 'Только ПО из предписания' "Лишние ($($extra.Count)): $names" $ST_FAIL $Sev.H `
-            'Удалить нештатное ПО либо внести изменения в эталон после согласования'
+            'Удалить нештатное ПО либо разрешить его в профиле после согласования (кнопка «Разрешить ПО…» на вкладке «Аудит»)' $full
     }
 }
 
@@ -716,7 +739,7 @@ Invoke-Check 'OS-AUTOLOGON' 'Параметры ОС' 'Автоматическ�
 $os = Get-CimInstance -ClassName Win32_OperatingSystem
 $cs = Get-CimInstance -ClassName Win32_ComputerSystem
 $ip = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Where-Object { $_.IPAddress -ne '127.0.0.1' } | ForEach-Object { $_.IPAddress }) -join ', '
+    Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { $_.IPAddress }) -join ', '
 
 [pscustomobject]@{
     Computer  = $env:COMPUTERNAME
