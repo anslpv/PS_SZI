@@ -53,11 +53,21 @@ Describe 'Статический анализ ПО «СЗИ-Аудит»' {
             $used.Count | Should -BeGreaterThan 20
             @($used | Where-Object { $declared -notcontains $_ }) | Should -BeNullOrEmpty
         }
-        It 'элементы окна выбора компьютеров, используемые через FindName, объявлены' {
-            [xml]$x = $Xamls['px']
-            $declared = @($x.SelectNodes('//*') | ForEach-Object { $_.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml') } | Where-Object { $_ })
-            foreach ($n in [regex]::Matches($MainText, "FindName\('(\w+)'\)") | ForEach-Object { $_.Groups[1].Value }) {
-                $declared | Should -Contain $n
+        It 'элементы диалоговых окон, используемые через FindName, объявлены в разметке своего окна' {
+            # Каждая функция диалога содержит одну разметку [xml]$px… и обращается к её элементам по имени
+            $tok = $null; $err = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($SziMain, [ref]$tok, [ref]$err)
+            $funcs = @($ast.FindAll({ param($a) $a -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+                    Where-Object { $_.Extent.Text -match "\[xml\]\`$px\w* = @'" })
+            $funcs.Count | Should -BeGreaterOrEqual 4
+            foreach ($fn in $funcs) {
+                $m = [regex]::Match($fn.Extent.Text, "(?s)\[xml\]\`$px\w* = @'\r?\n(.*?)\r?\n'@")
+                [xml]$x = $m.Groups[1].Value
+                $declared = @($x.SelectNodes('//*') | ForEach-Object { $_.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml') } | Where-Object { $_ })
+                $names = @([regex]::Matches($fn.Extent.Text, "FindName\('(\w+)'\)") | ForEach-Object { $_.Groups[1].Value })
+                $names += @([regex]::Matches($fn.Extent.Text, "foreach \(\`$n in ('[^)]+')\) \{ \`$f\[\`$n\] = \`$w\.FindName") |
+                        ForEach-Object { $_.Groups[1].Value -split ',' } | ForEach-Object { $_.Trim().Trim("'") })
+                foreach ($n in $names) { "$($fn.Name): $n" | Should -BeIn @($declared | ForEach-Object { "$($fn.Name): $_" }) }
             }
         }
     }
