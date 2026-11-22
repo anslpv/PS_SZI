@@ -18,6 +18,8 @@ Describe 'Главный модуль SziAudit.ps1' {
         $NoGui = $true; $OpenReport = $false
         $AppName = 'СЗИ-Аудит'; $AppVersion = '1.0'
         Mock Write-Host { }
+        # События журнала Windows в тестах не записываются
+        Mock Write-AuditEvent { }
 
         function New-Item2([string]$Id, [string]$Status, [string]$Severity = 'Высокая', [string]$Actual = '') {
             [pscustomobject]@{ CheckId = $Id; Category = 'Кат.'; Name = "Проверка $Id"; Status = $Status; Severity = $Severity; Actual = $Actual }
@@ -246,6 +248,112 @@ Describe 'Главный модуль SziAudit.ps1' {
             $ComputersFile = Join-Path $SziRoot 'arm.txt'
             Invoke-ConsoleAudit | Should -Be 0
             $script:StartedFor | Should -Be @('localhost')
+        }
+        It 'АРМ без профиля в перечне и без -ProfileId – исключение' {
+            $ProfileId = $null
+            { Invoke-ConsoleAudit } | Should -Throw '*не указан профиль*'
+        }
+    }
+
+    Context 'ТК-30. Перечень АРМ с профилями (ИМЯ;ПРОФИЛЬ, ИМЯ=ПРОФИЛЬ)' {
+        BeforeEach {
+            $script:Etalon = New-Object System.Xml.XmlDocument
+            $script:Etalon.Load((Join-Path $SziRoot 'Config/Etalon.xml'))
+        }
+        It 'профиль строки, профиль элемента и профиль по умолчанию' {
+            $t = (ConvertTo-AuditTargets @('# комментарий', 'ARM-01;ARM_SPN', 'ARM-02 ARM-03 ARM_ADM', 'ARM-04', 'ARM-05=SRV_OHD', '', 'arm-01') 'ARM_OPK')
+            $t.Count | Should -Be 5
+            ($t | ForEach-Object { "$($_.Computer)/$($_.ProfileId)" }) | Should -Be @(
+                'ARM-01/ARM_SPN', 'ARM-02/ARM_ADM', 'ARM-03/ARM_ADM', 'ARM-04/ARM_OPK', 'ARM-05/SRV_OHD')
+            $t[0].ProfileName | Should -Be 'АРМ старшего смены пограничных нарядов'
+        }
+        It 'неизвестный профиль в записи ИМЯ=ПРОФИЛЬ – исключение' {
+            { ConvertTo-AuditTargets @('ARM-01=NO_SUCH') 'ARM_OPK' } | Should -Throw '*неизвестный профиль*'
+        }
+        It 'без профиля по умолчанию АРМ без кода профиля не принимается' {
+            { ConvertTo-AuditTargets @('ARM-01') '' } | Should -Throw '*не указан профиль*'
+            (ConvertTo-AuditTargets @('ARM-01;ARM_SPD') '').Count | Should -Be 1
+        }
+    }
+
+    Context 'ТК-31. Импорт журнала учёта МНИ из файла' {
+        It 'CSV Windows-1251 с «;», графы определяются по заголовкам в любом порядке' {
+            $f = Join-Path $TestDrive 'mni1251.csv'
+            [IO.File]::WriteAllBytes($f, [Text.Encoding]::GetEncoding(1251).GetBytes(
+                    "Учётный номер;Серийный номер;Ответственный`r`nуч. № 5;AA11BB22;Иванов И.И.`r`n;;`r`n"))
+            $m = @(ConvertFrom-MediaRows (Read-CsvTable $f))
+            $m.Count | Should -Be 1
+            $m[0].serial | Should -Be 'AA11BB22'; $m[0].owner | Should -Be 'Иванов И.И.'; $m[0].note | Should -Be 'уч. № 5'
+        }
+        It 'CSV UTF-8 с «,» и кавычками; файл из одной строки без заголовка' {
+            $f = Join-Path $TestDrive 'mni.csv'
+            [IO.File]::WriteAllText($f, "serial,owner,note`r`n""S123456"",""Петров, П.П."",""уч. № 7""", (New-Object Text.UTF8Encoding($true)))
+            (ConvertFrom-MediaRows (Read-CsvTable $f)).owner | Should -Be 'Петров, П.П.'
+            $f2 = Join-Path $TestDrive 'mni2.csv'
+            [IO.File]::WriteAllText($f2, '0401396BBFE2A1B5;Администратор;уч. № 1', (New-Object Text.UTF8Encoding($false)))
+            $m = @(ConvertFrom-MediaRows (Read-CsvTable $f2))
+            $m.Count | Should -Be 1; $m[0].serial | Should -Be '0401396BBFE2A1B5'
+        }
+        It 'книга Excel .xlsx читается без установленного Excel' {
+            Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+            $f = Join-Path $TestDrive 'mni.xlsx'
+            $parts = [ordered]@{
+                '[Content_Types].xml' = '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'
+                'xl/workbook.xml' = '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="МНИ" sheetId="1" r:id="rId1"/></sheets></workbook>'
+                'xl/_rels/workbook.xml.rels' = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'
+                'xl/sharedStrings.xml' = '<?xml version="1.0" encoding="UTF-8"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>Серийный номер</t></si><si><t>Ответственный</t></si><si><t>C87F00</t></si><si><t>Сидоров</t></si></sst>'
+                'xl/worksheets/sheet1.xml' = '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="C2" t="inlineStr"><is><t>уч. № 9</t></is></c><c r="B2" t="s"><v>3</v></c></row></sheetData></worksheet>'
+            }
+            $zip = ('System.IO.Compression.ZipFile' -as [type])::Open($f, 'Create')
+            foreach ($k in $parts.Keys) {
+                $sw = New-Object IO.StreamWriter($zip.CreateEntry($k).Open(), (New-Object Text.UTF8Encoding($false)))
+                $sw.Write($parts[$k]); $sw.Close()
+            }
+            $zip.Dispose()
+            $m = @(ConvertFrom-MediaRows (Read-XlsxTable $f))
+            $m.Count | Should -Be 1
+            $m[0].serial | Should -Be 'C87F00'; $m[0].owner | Should -Be 'Сидоров'
+        }
+        It 'файл без графы серийного номера отклоняется' {
+            $rows = New-Object System.Collections.ArrayList
+            [void]$rows.Add([string[]]@('Ответственный', 'Примечание')); [void]$rows.Add([string[]]@('Иванов', 'x'))
+            { ConvertFrom-MediaRows $rows } | Should -Throw '*серийным номером*'
+        }
+    }
+
+    Context 'ТК-32. Шаблон разрешённого ПО по наименованию программы' {
+        It 'номер версии в конце наименования заменяется на «*», квадратные скобки экранируются' {
+            ConvertTo-SoftPattern '7-Zip 26.06 (x64)' | Should -Be '7-Zip*'
+            ConvertTo-SoftPattern 'Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.38.33135' |
+                Should -Be 'Microsoft Visual C++ 2015-2022 Redistributable (x64)*'
+            ConvertTo-SoftPattern 'Google Chrome' | Should -Be 'Google Chrome'
+            ConvertTo-SoftPattern 'Notepad++ [x64]' | Should -Be 'Notepad++ ?x64?'
+            '7-Zip 27.01 (x64)' -like (ConvertTo-SoftPattern '7-Zip 26.06 (x64)') | Should -BeTrue
+        }
+    }
+
+    Context 'ТК-33. Событие журнала Windows при ухудшении результатов' {
+        BeforeEach {
+            $script:Events = @()
+            Mock Write-AuditEvent { $script:Events += [pscustomobject]@{ Id = $Id; Type = $Type; Message = $Message } }
+            Mock Write-Log { }
+            $old = [pscustomobject]@{ Computer = 'ARM-01'; Profile = 'П'; Results = @((New-Item2 A $OK -Actual '8'), (New-Item2 B $OK -Actual 'выкл')) }
+            $old | Export-Clixml (Join-Path $Paths.Results 'ARM-01_1.xml')
+            $script:Prev = [pscustomobject]@{ Date = '01.11.2026 08:00:00'; Computer = 'ARM-01'; Profile = 'П'; Index = '100'; File = 'ARM-01_1.xml' }
+        }
+        It 'ухудшение – событие 1002 с перечнем новых несоответствий' {
+            $new = [pscustomobject]@{ Computer = 'ARM-01'; Profile = 'П'; Results = @((New-Item2 A $OK -Actual '8'), (New-Item2 B $FAIL -Actual 'вкл')) }
+            Send-AuditEvents $new (Get-AuditSummary $new.Results) $Prev
+            ($Events | ForEach-Object Id) | Should -Be @(1000, 1002)
+            $Events[1].Type | Should -Be 'Warning'
+            $Events[1].Message | Should -Match 'Проверка B: Не соответствует: вкл'
+        }
+        It 'без изменений и при смене профиля – только событие 1000' {
+            $same = [pscustomobject]@{ Computer = 'ARM-01'; Profile = 'П'; Results = @((New-Item2 A $OK -Actual '8'), (New-Item2 B $OK -Actual 'выкл')) }
+            Send-AuditEvents $same (Get-AuditSummary $same.Results) $Prev
+            $other = [pscustomobject]@{ Computer = 'ARM-01'; Profile = 'Другой'; Results = @((New-Item2 B $FAIL)) }
+            Send-AuditEvents $other (Get-AuditSummary $other.Results) $Prev
+            ($Events | ForEach-Object Id) | Should -Be @(1000, 1000)
         }
     }
 }

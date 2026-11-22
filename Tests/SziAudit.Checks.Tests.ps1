@@ -139,7 +139,7 @@ Describe 'Модуль проверок SziAudit.Checks.ps1' {
         }
         It 'при отсутствии каталога используется дата из Центра безопасности Windows' {
             Remove-Item -Path $Et.Bases -Recurse -Force
-            $FakeArm.AvProduct = @{ displayName = 'Kaspersky Endpoint Security'; timestamp = (Get-Date).AddDays(-2).ToString('R') }
+            $FakeArm.AvProduct = @{ displayName = 'Kaspersky Endpoint Security'; timestamp = (Get-Date).AddDays(-2).ToUniversalTime().ToString('R') }
             $r = Get-CheckResult (Invoke-TestAudit $Et.Xml) 'AV-BASES'
             $r.Status | Should -Be $OK
             $r.Actual | Should -Match '\(2 сут\.\)'

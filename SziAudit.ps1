@@ -648,7 +648,7 @@ function Sync-ProfilesToXml {
 }
 
 function Show-InputDialog([string]$Title, [string]$IdValue, [string]$NameValue) {
-    [xml]$px = @'
+    [xml]$pxInput = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Width="520" SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
@@ -665,7 +665,7 @@ function Show-InputDialog([string]$Title, [string]$IdValue, [string]$NameValue) 
   </StackPanel>
 </Window>
 '@
-    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
+    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $pxInput))
     $w.Owner = $Window; $w.Title = $Title
     $tbId = $w.FindName('tbId'); $tbName = $w.FindName('tbName')
     $tbId.Text = $IdValue; $tbName.Text = $NameValue
@@ -889,7 +889,7 @@ function ConvertTo-SoftPattern([string]$Name) {
 # $Preload – готовый перечень ПО (Name, Version, Publisher) вместо опроса АРМ;
 # $Targets – упорядоченный словарь «наименование → таблица шаблонов» для выбора, куда добавить ПО
 function Show-SoftwarePicker($Table, [string]$Title, $Preload = $null, $Targets = $null) {
-    [xml]$px = @'
+    [xml]$pxSoft = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Выбор разрешённого ПО" Width="980" Height="600" WindowStartupLocation="CenterOwner"
@@ -932,7 +932,7 @@ function Show-SoftwarePicker($Table, [string]$Title, $Preload = $null, $Targets 
   </DockPanel>
 </Window>
 '@
-    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
+    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $pxSoft))
     $w.Owner = $Window
     $f = @{}; foreach ($n in 'tbHead', 'tbHost', 'btnLoad', 'cbHideAllowed', 'tbFilter', 'tbCount', 'dgSoft', 'spTarget', 'cbTarget', 'dpHost') { $f[$n] = $w.FindName($n) }
     $f.tbHead.Text = $Title
@@ -1033,7 +1033,7 @@ function Get-AuditTaskState {
 }
 
 function Show-ScheduleDialog {
-    [xml]$px = @'
+    [xml]$pxSched = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ежедневный аудит – Планировщик заданий Windows" Width="720" SizeToContent="Height"
@@ -1080,7 +1080,7 @@ function Show-ScheduleDialog {
   </StackPanel>
 </Window>
 '@
-    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $px))
+    $w = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $pxSched))
     $w.Owner = $Window
     $f = @{}; foreach ($n in 'tbState', 'tbTime', 'cbDays', 'cbProf', 'tbFile', 'btnBrowse', 'rbSystem', 'rbUser', 'btnSave', 'btnRun', 'btnDel') { $f[$n] = $w.FindName($n) }
     $f.rbUser.Content = "$env:USERDOMAIN\$env:USERNAME – только когда пользователь вошёл в систему"
@@ -1222,7 +1222,9 @@ function Import-Etalon {
 function Test-EtalonTables {
     $errors = @()
     $ids = @()
-    $profileIds = @($script:Etalon.SziEtalon.Profiles.Profile | ForEach-Object { $_.GetAttribute('id') })
+    $profileIds = @()
+    if ($script:Etalon) { $profileIds = @($script:Etalon.SziEtalon.Profiles.Profile | Where-Object { $_ } | ForEach-Object { $_.GetAttribute('id') }) }
+    $hasProfiles = $script:SziTable.Columns.Contains('profiles')
     foreach ($r in $script:SziTable.Rows) {
         if ($r.RowState -eq 'Deleted') { continue }
         $id = ([string]$r['id']).Trim()
@@ -1230,15 +1232,16 @@ function Test-EtalonTables {
         if ($ids -contains $id) { $errors += "Повторяющийся код СЗИ: $id" }
         $ids += $id
         if (-not ([string]$r['productPattern']).Trim()) { $errors += "СЗИ ${id}: не задан шаблон имени ПО" }
-        foreach ($prof in @(([string]$r['profiles']) -split '[,;\s]+' | Where-Object { $_ })) {
-            if ($profileIds -notcontains $prof) {
-                $errors += "СЗИ ${id}: неизвестный профиль «$prof». Допустимые коды: $($profileIds -join ', ')"
-            }
-        }
         $d = ([string]$r['certExpires']).Trim()
         $tmp = [datetime]::MinValue
         if ($d -and -not [datetime]::TryParseExact($d, 'yyyy-MM-dd', $null, 'None', [ref]$tmp)) {
             $errors += "СЗИ ${id}: дата окончания сертификата должна быть в формате ГГГГ-ММ-ДД"
+        }
+        if (-not $hasProfiles) { continue }
+        foreach ($prof in @(([string]$r['profiles']) -split '[,;\s]+' | Where-Object { $_ })) {
+            if ($profileIds -notcontains $prof) {
+                $errors += "СЗИ ${id}: неизвестный профиль «$prof». Допустимые коды: $($profileIds -join ', ')"
+            }
         }
     }
     foreach ($r in $script:MediaTable.Rows) {
@@ -1372,7 +1375,8 @@ function Read-CsvTable([string]$Path) {
 # Чтение первого листа книги Excel .xlsx без установленного Excel (формат Office Open XML)
 function Read-XlsxTable([string]$Path) {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-    $zip = [IO.Compression.ZipFile]::OpenRead($Path)
+    # Тип загружается Add-Type – обращение через -as [type] (в PowerShell 5.1 тип не загружен по умолчанию)
+    $zip = ('System.IO.Compression.ZipFile' -as [type])::OpenRead($Path)
     try {
         $readXml = {
             param($name)
